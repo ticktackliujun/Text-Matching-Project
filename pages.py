@@ -558,7 +558,6 @@ def create_search_page():
     font.setFamily("SimHei")  # 使用黑体等中文字体
     page.setFont(font)
 
-    # 添加UTF-8编码声明
     page.setStyleSheet("""
         QWidget {
             font-family: "SimHei", "WenQuanYi Micro Hei", "Heiti TC";
@@ -583,7 +582,7 @@ def create_search_page():
     algo_combo.setStyleSheet("padding: 8px; border-radius: 4px;")
     algo_layout.addWidget(algo_combo)
 
-    # 算法参数
+    # 算法参数（修改为单文件最大结果数）
     param_group = QGroupBox("算法参数")
     param_layout = QFormLayout(param_group)
 
@@ -592,15 +591,12 @@ def create_search_page():
     threshold_spin.setValue(0.5)
     threshold_spin.setSingleStep(0.1)
 
-    max_results_spin = QSpinBox()
-    max_results_spin.setRange(1, 1000)
-    max_results_spin.setValue(100)
-
-    fuzzy_check = QCheckBox()
+    file_max_results_spin = QSpinBox()
+    file_max_results_spin.setRange(1, 1000)
+    file_max_results_spin.setValue(10)  # 默认显示每个文件前10条结果
 
     param_layout.addRow("相似度阈值:", threshold_spin)
-    param_layout.addRow("最大结果数:", max_results_spin)
-    param_layout.addRow("启用模糊匹配:", fuzzy_check)
+    param_layout.addRow("单文件最大结果数:", file_max_results_spin)
 
     # 搜索框
     search_box = QLineEdit()
@@ -643,7 +639,7 @@ def create_search_page():
     progress_bar.setStyleSheet("QProgressBar { border-radius: 4px; height: 20px; }")
     layout.addWidget(progress_bar)
 
-    # 结果展示区
+    # 结果展示区（增加行号列）
     result_tabs = QTabWidget()
     result_tabs.setStyleSheet("""
         QTabWidget::pane { border: 1px solid #ddd; border-radius: 4px; }
@@ -651,17 +647,13 @@ def create_search_page():
         QTabBar::tab:selected { background: white; }
     """)
 
-    # 表格视图
+    # 表格视图（6列，包含行号）
     table_view = QTableWidget()
-    table_view.setColumnCount(5)
-    table_view.setHorizontalHeaderLabels(["文件名", "路径", "关键词", "匹配内容", "置信度"])
+    table_view.setColumnCount(6)
+    table_view.setHorizontalHeaderLabels(["文件名", "路径", "行号", "关键词", "匹配内容", "置信度"])
     table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     table_view.verticalHeader().setVisible(False)
     table_view.setAlternatingRowColors(True)
-    table_view.setSelectionBehavior(QTableWidget.SelectRows)
-    table_view.setEditTriggers(QTableWidget.NoEditTriggers)
-
-    # 在表格视图定义下方添加以下代码
     table_view.setSelectionBehavior(QTableWidget.SelectRows)
     table_view.setEditTriggers(QTableWidget.NoEditTriggers)
 
@@ -669,62 +661,48 @@ def create_search_page():
     table_view.setContextMenuPolicy(Qt.CustomContextMenu)
     table_view.customContextMenuRequested.connect(lambda pos: show_table_context_menu(table_view, pos))
 
-    # 右键菜单处理函数（新增文件名复制功能）
+    # 右键菜单处理函数
     def show_table_context_menu(table, pos):
-        # 获取选中的行
         selected_rows = table.selectionModel().selectedRows()
         if not selected_rows:
             return
 
         row = selected_rows[0].row()
+        name_item = table.item(row, 0)
+        path_item = table.item(row, 1)
+        line_item = table.item(row, 2)  # 新增行号项
 
-        # 获取文件名和路径数据
-        name_item = table.item(row, 0)  # 文件名在第1列（索引0）
-        path_item = table.item(row, 1)  # 路径在第2列（索引1）
-
-        # 检查数据有效性
         has_name = name_item and name_item.text().strip()
         has_path = path_item and path_item.text().strip()
+        has_line = line_item and line_item.text().strip()
 
-        # 创建右键菜单
         menu = QMenu()
-
-        # 添加复制文件名选项
         if has_name:
             copy_name_action = QAction("复制文件名", table)
             copy_name_action.triggered.connect(lambda: copy_to_clipboard(name_item.text()))
             menu.addAction(copy_name_action)
-
-        # 添加复制文件路径选项
         if has_path:
             copy_path_action = QAction("复制文件路径", table)
             copy_path_action.triggered.connect(lambda: copy_to_clipboard(path_item.text()))
             menu.addAction(copy_path_action)
+        if has_line:
+            copy_line_action = QAction("复制行号", table)
+            copy_line_action.triggered.connect(lambda: copy_to_clipboard(line_item.text()))
+            menu.addAction(copy_line_action)
 
-        # 如果没有可复制的数据，不显示菜单
-        if not (has_name or has_path):
+        if not (has_name or has_path or has_line):
             return
 
-        # 在鼠标位置显示菜单
         global_pos = table.mapToGlobal(pos)
         menu.exec_(global_pos)
 
-    # 统一的复制到剪贴板函数（支持不同数据）
+    # 统一的复制到剪贴板函数
     def copy_to_clipboard(text):
         clipboard = QGuiApplication.clipboard()
         clipboard.setText(text)
         QMessageBox.information(page, "成功", f"已复制：{text}")
 
-    # 图表视图
-    chart_view = QWidget()
-    chart_layout = QVBoxLayout(chart_view)
-    chart_placeholder = QLabel("检索结果可视化图表将显示在这里")
-    chart_placeholder.setAlignment(Qt.AlignCenter)
-    chart_placeholder.setStyleSheet("color: #95a5a6; font-size: 16px;")
-    chart_layout.addWidget(chart_placeholder)
-
     result_tabs.addTab(table_view, "表格视图")
-    result_tabs.addTab(chart_view, "图表视图")
     layout.addWidget(result_tabs, 1)
 
     # 状态栏
@@ -762,13 +740,11 @@ def create_search_page():
             QMessageBox.warning(page, "警告", "请输入搜索关键词")
             return
 
-        # 检查是否有文件列表
-        file_list_path = "file_list.txt"  # 与数据源模块约定的路径
+        file_list_path = "file_list.txt"
         if not os.path.exists(file_list_path):
             QMessageBox.warning(page, "警告", "请先在数据源模块索引文件")
             return
 
-        # 获取搜索参数
         algorithm_map = {
             "关键词检索": "keyword",
             "TF-IDF": "tfidf",
@@ -777,16 +753,16 @@ def create_search_page():
         }
         algorithm = algorithm_map.get(algo_combo.currentText(), "keyword")
         threshold = threshold_spin.value()
+        file_max_results = file_max_results_spin.value()  # 获取单文件最大结果数
 
-        # 准备UI
         search_btn.setEnabled(False)
         search_btn.setText("搜索中...")
         table_view.setRowCount(0)
         progress_bar.setValue(0)
         result_count_label.setText("共找到 0 条结果")
 
-        # 创建并启动搜索线程
-        search_worker = SearchWorker(file_list_path, keyword, algorithm, threshold)
+        # 传递file_max_results参数
+        search_worker = SearchWorker(file_list_path, keyword, algorithm, threshold, file_max_results)
         search_worker.search_progress.connect(update_search_progress)
         search_worker.search_finished.connect(show_search_results)
         search_worker.error_occurred.connect(show_search_error)
@@ -797,22 +773,28 @@ def create_search_page():
         search_btn.setText(f"搜索中...{progress}%")
 
     def show_search_results(results):
-        # 显示搜索结果
-        table_view.setRowCount(len(results))
+        current_threshold = threshold_spin.value()
 
-        for row, result in enumerate(results):
+        # 按置信度从高到低排序，并过滤低于阈值的
+        filtered_results = [r for r in results if r['confidence'] >= current_threshold]
+        sorted_results = sorted(filtered_results, key=lambda x: x['confidence'], reverse=True)
+
+        table_view.setRowCount(len(sorted_results))
+
+        for row, result in enumerate(sorted_results):
             table_view.setItem(row, 0, QTableWidgetItem(result['file']))
             table_view.setItem(row, 1, QTableWidgetItem(result['path']))
-            table_view.setItem(row, 2, QTableWidgetItem(result['keyword']))
-            table_view.setItem(row, 3, QTableWidgetItem(result['context']))
-            table_view.setItem(row, 4, QTableWidgetItem(str(result['confidence'])))
+            table_view.setItem(row, 2, QTableWidgetItem(str(result.get('line', 'N/A'))))  # 显示行号
+            table_view.setItem(row, 3, QTableWidgetItem(result['keyword']))
+            table_view.setItem(row, 4, QTableWidgetItem(result['context']))
+            table_view.setItem(row, 5, QTableWidgetItem(str(result['confidence'])))
 
-        # 更新状态
-        result_count_label.setText(f"共找到 {len(results)} 条结果")
+        result_count_label.setText(f"共找到 {len(sorted_results)} 条结果")
         search_btn.setEnabled(True)
         search_btn.setText("开始检索")
         progress_bar.setValue(100)
 
+    threshold_spin.valueChanged.connect(lambda: show_search_results(search_worker.results if search_worker else []))
     def show_search_error(message):
         QMessageBox.critical(page, "错误", message)
         search_btn.setEnabled(True)
@@ -829,22 +811,8 @@ def create_search_page():
 
         if output_path:
             try:
-                # 指定utf-8-sig编码确保Excel能正确打开包含中文的CSV文件
-                with open(output_path, 'w', newline='', encoding='utf-8-sig') as file:
-                    writer = csv.writer(file)
-
-                    # 处理表头和数据行
-                    if search_worker.results and isinstance(search_worker.results[0], dict):
-                        # 如果结果是字典列表，提取键作为表头
-                        headers = search_worker.results[0].keys()
-                        writer.writerow(headers)
-                        for row in search_worker.results:
-                            writer.writerow(row.values())
-                    else:
-                        # 普通二维列表数据
-                        for row in search_worker.results:
-                            writer.writerow(row)
-
+                # 使用线程提供的导出方法（包含行号）
+                SearchWorker.export_to_csv(search_worker.results, output_path)
                 QMessageBox.information(page, "成功", f"结果已导出到 {output_path}")
             except Exception as e:
                 QMessageBox.critical(page, "错误", f"导出文件时发生错误: {str(e)}")
