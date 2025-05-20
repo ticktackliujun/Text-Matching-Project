@@ -14,7 +14,7 @@ from worker_thread import IndexWorker
 from search_worker import SearchWorker
 import os
 from PyQt5.QtCore import Qt
-
+import csv
 
 def create_page(page_title, db_manager=None):
     page = QWidget()
@@ -553,7 +553,18 @@ def create_data_source_page():
 
 def create_search_page():
     page = QWidget()
-    page.setStyleSheet("background-color: #f8f9fa;")
+    # 设置支持中文的字体
+    font = QFont()
+    font.setFamily("SimHei")  # 使用黑体等中文字体
+    page.setFont(font)
+
+    # 添加UTF-8编码声明
+    page.setStyleSheet("""
+        QWidget {
+            font-family: "SimHei", "WenQuanYi Micro Hei", "Heiti TC";
+            background-color: #f8f9fa;
+        }
+    """)
     layout = QVBoxLayout(page)
     layout.setContentsMargins(15, 15, 15, 15)
     layout.setSpacing(15)
@@ -704,7 +715,6 @@ def create_search_page():
         clipboard.setText(text)
         QMessageBox.information(page, "成功", f"已复制：{text}")
 
-
     # 图表视图
     chart_view = QWidget()
     chart_layout = QVBoxLayout(chart_view)
@@ -819,17 +829,31 @@ def create_search_page():
 
         if output_path:
             try:
-                SearchWorker.export_to_csv(search_worker.results, output_path)
+                # 指定utf-8-sig编码确保Excel能正确打开包含中文的CSV文件
+                with open(output_path, 'w', newline='', encoding='utf-8-sig') as file:
+                    writer = csv.writer(file)
+
+                    # 处理表头和数据行
+                    if search_worker.results and isinstance(search_worker.results[0], dict):
+                        # 如果结果是字典列表，提取键作为表头
+                        headers = search_worker.results[0].keys()
+                        writer.writerow(headers)
+                        for row in search_worker.results:
+                            writer.writerow(row.values())
+                    else:
+                        # 普通二维列表数据
+                        for row in search_worker.results:
+                            writer.writerow(row)
+
                 QMessageBox.information(page, "成功", f"结果已导出到 {output_path}")
             except Exception as e:
-                QMessageBox.critical(page, "错误", str(e))
+                QMessageBox.critical(page, "错误", f"导出文件时发生错误: {str(e)}")
 
     # 连接信号
     search_btn.clicked.connect(start_search)
     export_btn.clicked.connect(export_results)
 
     return page
-
 def create_rule_page():
     page = QWidget()
     page.setStyleSheet("background-color: #f8f9fa;")
