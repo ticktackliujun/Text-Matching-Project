@@ -2,15 +2,16 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
                              QLineEdit, QPushButton, QFileDialog, QGroupBox, QTextEdit,
                              QGridLayout, QScrollArea, QTableWidget, QTableWidgetItem,
                              QHeaderView, QSplitter, QListWidget, QListWidgetItem,
-                             QTabWidget, QFormLayout, QCheckBox, QSpinBox, QDoubleSpinBox, QProgressBar)
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QFont, QIcon, QPixmap
+                             QTabWidget, QFormLayout, QCheckBox, QSpinBox, QDoubleSpinBox, QProgressBar, QMenu, QAction)
+from PyQt5.QtCore import Qt, QSize, QFileInfo
+from PyQt5.QtGui import QFont, QIcon, QPixmap, QGuiApplication
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QDialog, QFormLayout, QDialogButtonBox,
     QMessageBox, QHeaderView
 )
 from worker_thread import IndexWorker
+from search_worker import SearchWorker
 import os
 from PyQt5.QtCore import Qt
 
@@ -129,6 +130,19 @@ def create_data_source_page():
     function_layout.addWidget(progress_bar, 2, 2)
 
     main_layout.addWidget(function_area)
+    # 在function_layout中添加二次过滤按钮
+    secondary_filter_btn = QPushButton("二次过滤")
+    secondary_filter_btn.setStyleSheet("""
+           QPushButton {
+               padding: 8px 20px;
+               background-color: #f39c12;
+               color: white;
+               border-radius: 4px;
+               font-weight: bold;
+           }
+           QPushButton:hover { background-color: #e67e22; }
+       """)
+    function_layout.addWidget(secondary_filter_btn, 3, 2)  # 添加到第三行第三列
 
     # 文件类型筛选器
     filter_bar = QWidget()
@@ -279,6 +293,16 @@ def create_data_source_page():
         # 清空文件列表
         file_list.clear()
 
+        # 保存文件列表到txt（新增部分）
+        try:
+            with open("file_list.txt", 'w', encoding='utf-8') as f:
+                for file_path in files:
+                    f.write(file_path + '\n')
+        except Exception as e:
+            print(f"保存文件列表失败: {str(e)}")
+            # 可以选择显示错误信息给用户
+            update_status(f"保存文件列表失败: {str(e)}")
+
         # 添加文件到列表
         from PyQt5.QtCore import QFileInfo, QDateTime
 
@@ -353,6 +377,177 @@ def create_data_source_page():
 
     file_list.itemClicked.connect(show_file_info)
 
+    # 实现二次过滤功能
+    def open_secondary_filter():
+        # 检查是否有文件列表
+        if not os.path.exists("file_list.txt"):
+            QMessageBox.warning(page, "警告", "请先完成索引操作")
+            return
+
+        # 读取文件列表
+        try:
+            with open("file_list.txt", 'r', encoding='utf-8') as f:
+                all_files = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            QMessageBox.critical(page, "错误", f"读取文件列表失败: {str(e)}")
+            return
+
+        # 创建过滤对话框
+        filter_dialog = QDialog(page)
+        filter_dialog.setWindowTitle("二次过滤")
+        filter_dialog.setMinimumSize(800, 600)
+        filter_dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+            }
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QListWidget {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+            }
+            QListWidget::item:hover {
+                background-color: #f0f7fd;
+            }
+        """)
+
+        # 对话框布局
+        layout = QVBoxLayout(filter_dialog)
+
+        # 搜索框
+        search_layout = QHBoxLayout()
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("输入关键词过滤文件...")
+        search_btn = QPushButton("搜索")
+        search_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 15px;
+                background-color: #3498db;
+                color: white;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+        """)
+        search_layout.addWidget(search_input)
+        search_layout.addWidget(search_btn)
+        layout.addLayout(search_layout)
+
+        # 操作按钮
+        btn_layout = QHBoxLayout()
+        select_all_btn = QPushButton("全选")
+        invert_select_btn = QPushButton("反选")
+        clear_select_btn = QPushButton("清空")
+
+        for btn in [select_all_btn, invert_select_btn, clear_select_btn]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    padding: 5px 10px;
+                    background-color: #ecf0f1;
+                    border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #d5dbdb; }
+            """)
+            btn_layout.addWidget(btn)
+
+        layout.addLayout(btn_layout)
+
+        # 文件列表
+        file_list_widget = QListWidget()
+        file_list_widget.setSelectionMode(QListWidget.MultiSelection)
+        layout.addWidget(file_list_widget)
+
+        # 填充文件列表
+        for file_path in all_files:
+            item = QListWidgetItem(file_path)
+            item.setCheckState(Qt.Unchecked)
+            file_list_widget.addItem(item)
+
+        # 底部按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(filter_dialog.accept)
+        button_box.rejected.connect(filter_dialog.reject)
+        layout.addWidget(button_box)
+
+        # 搜索功能
+        def perform_search():
+            keyword = search_input.text().lower()
+            for i in range(file_list_widget.count()):
+                item = file_list_widget.item(i)
+                file_path = item.text().lower()
+                item.setHidden(keyword not in file_path)
+
+        search_input.textChanged.connect(perform_search)
+        search_btn.clicked.connect(perform_search)
+
+        # 选择功能
+        def select_all():
+            for i in range(file_list_widget.count()):
+                item = file_list_widget.item(i)
+                if not item.isHidden():
+                    item.setCheckState(Qt.Checked)
+
+        def invert_selection():
+            for i in range(file_list_widget.count()):
+                item = file_list_widget.item(i)
+                if not item.isHidden():
+                    item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+
+        def clear_selection():
+            for i in range(file_list_widget.count()):
+                item = file_list_widget.item(i)
+                item.setCheckState(Qt.Unchecked)
+
+        select_all_btn.clicked.connect(select_all)
+        invert_select_btn.clicked.connect(invert_selection)
+        clear_select_btn.clicked.connect(clear_selection)
+
+        # 执行对话框
+        if filter_dialog.exec_() == QDialog.Accepted:
+            # 获取选中的文件
+            selected_files = []
+            for i in range(file_list_widget.count()):
+                item = file_list_widget.item(i)
+                if item.checkState() == Qt.Checked:
+                    selected_files.append(item.text())
+
+            if selected_files:
+                # 更新file_list.txt
+                try:
+                    with open("file_list.txt", 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(selected_files))
+
+                    # 更新主界面文件列表
+                    file_list.clear()
+                    for file_path in selected_files:
+                        file_info = QFileInfo(file_path)
+                        item = QListWidgetItem(file_info.fileName())
+                        item.setData(Qt.UserRole, {
+                            'path': file_path,
+                            'size': file_info.size(),
+                            'created': file_info.created(),
+                            'modified': file_info.lastModified()
+                        })
+                        file_list.addItem(item)
+
+                    update_status(f"二次过滤完成，剩余 {len(selected_files)} 个文件")
+                except Exception as e:
+                    QMessageBox.critical(page, "错误", f"保存过滤结果失败: {str(e)}")
+            else:
+                QMessageBox.information(page, "提示", "没有选择任何文件，保持原列表不变")
+
+    # 连接二次过滤按钮
+    secondary_filter_btn.clicked.connect(open_secondary_filter)
+
     return page
 
 
@@ -380,9 +575,21 @@ def create_search_page():
     # 算法参数
     param_group = QGroupBox("算法参数")
     param_layout = QFormLayout(param_group)
-    param_layout.addRow("相似度阈值:", QDoubleSpinBox())
-    param_layout.addRow("最大结果数:", QSpinBox())
-    param_layout.addRow("启用模糊匹配:", QCheckBox())
+
+    threshold_spin = QDoubleSpinBox()
+    threshold_spin.setRange(0.0, 1.0)
+    threshold_spin.setValue(0.5)
+    threshold_spin.setSingleStep(0.1)
+
+    max_results_spin = QSpinBox()
+    max_results_spin.setRange(1, 1000)
+    max_results_spin.setValue(100)
+
+    fuzzy_check = QCheckBox()
+
+    param_layout.addRow("相似度阈值:", threshold_spin)
+    param_layout.addRow("最大结果数:", max_results_spin)
+    param_layout.addRow("启用模糊匹配:", fuzzy_check)
 
     # 搜索框
     search_box = QLineEdit()
@@ -417,6 +624,14 @@ def create_search_page():
     control_layout.addWidget(search_btn)
     layout.addWidget(control_panel)
 
+    # 进度条
+    progress_bar = QProgressBar()
+    progress_bar.setRange(0, 100)
+    progress_bar.setValue(0)
+    progress_bar.setTextVisible(True)
+    progress_bar.setStyleSheet("QProgressBar { border-radius: 4px; height: 20px; }")
+    layout.addWidget(progress_bar)
+
     # 结果展示区
     result_tabs = QTabWidget()
     result_tabs.setStyleSheet("""
@@ -428,10 +643,67 @@ def create_search_page():
     # 表格视图
     table_view = QTableWidget()
     table_view.setColumnCount(5)
-    table_view.setHorizontalHeaderLabels(["文档ID", "标题", "相关度", "摘要", "操作"])
+    table_view.setHorizontalHeaderLabels(["文件名", "路径", "关键词", "匹配内容", "置信度"])
     table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     table_view.verticalHeader().setVisible(False)
     table_view.setAlternatingRowColors(True)
+    table_view.setSelectionBehavior(QTableWidget.SelectRows)
+    table_view.setEditTriggers(QTableWidget.NoEditTriggers)
+
+    # 在表格视图定义下方添加以下代码
+    table_view.setSelectionBehavior(QTableWidget.SelectRows)
+    table_view.setEditTriggers(QTableWidget.NoEditTriggers)
+
+    # 添加右键菜单支持
+    table_view.setContextMenuPolicy(Qt.CustomContextMenu)
+    table_view.customContextMenuRequested.connect(lambda pos: show_table_context_menu(table_view, pos))
+
+    # 右键菜单处理函数（新增文件名复制功能）
+    def show_table_context_menu(table, pos):
+        # 获取选中的行
+        selected_rows = table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+
+        row = selected_rows[0].row()
+
+        # 获取文件名和路径数据
+        name_item = table.item(row, 0)  # 文件名在第1列（索引0）
+        path_item = table.item(row, 1)  # 路径在第2列（索引1）
+
+        # 检查数据有效性
+        has_name = name_item and name_item.text().strip()
+        has_path = path_item and path_item.text().strip()
+
+        # 创建右键菜单
+        menu = QMenu()
+
+        # 添加复制文件名选项
+        if has_name:
+            copy_name_action = QAction("复制文件名", table)
+            copy_name_action.triggered.connect(lambda: copy_to_clipboard(name_item.text()))
+            menu.addAction(copy_name_action)
+
+        # 添加复制文件路径选项
+        if has_path:
+            copy_path_action = QAction("复制文件路径", table)
+            copy_path_action.triggered.connect(lambda: copy_to_clipboard(path_item.text()))
+            menu.addAction(copy_path_action)
+
+        # 如果没有可复制的数据，不显示菜单
+        if not (has_name or has_path):
+            return
+
+        # 在鼠标位置显示菜单
+        global_pos = table.mapToGlobal(pos)
+        menu.exec_(global_pos)
+
+    # 统一的复制到剪贴板函数（支持不同数据）
+    def copy_to_clipboard(text):
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(text)
+        QMessageBox.information(page, "成功", f"已复制：{text}")
+
 
     # 图表视图
     chart_view = QWidget()
@@ -448,14 +720,115 @@ def create_search_page():
     # 状态栏
     status_bar = QWidget()
     status_layout = QHBoxLayout(status_bar)
-    status_layout.addWidget(QLabel("共找到 0 条结果"))
+
+    result_count_label = QLabel("共找到 0 条结果")
+    result_count_label.setStyleSheet("font-weight: bold;")
+
+    export_btn = QPushButton("导出结果")
+    export_btn.setStyleSheet("""
+        QPushButton {
+            padding: 5px 15px;
+            background-color: #3498db;
+            color: white;
+            border-radius: 4px;
+        }
+        QPushButton:hover { background-color: #2980b9; }
+    """)
+
+    status_layout.addWidget(result_count_label)
     status_layout.addStretch()
-    status_layout.addWidget(QPushButton("导出结果"))
+    status_layout.addWidget(export_btn)
 
     layout.addWidget(status_bar)
 
-    return page
+    # 搜索工作线程
+    search_worker = None
 
+    def start_search():
+        nonlocal search_worker
+
+        keyword = search_box.text().strip()
+        if not keyword:
+            QMessageBox.warning(page, "警告", "请输入搜索关键词")
+            return
+
+        # 检查是否有文件列表
+        file_list_path = "file_list.txt"  # 与数据源模块约定的路径
+        if not os.path.exists(file_list_path):
+            QMessageBox.warning(page, "警告", "请先在数据源模块索引文件")
+            return
+
+        # 获取搜索参数
+        algorithm_map = {
+            "关键词检索": "keyword",
+            "TF-IDF": "tfidf",
+            "布尔模型": "boolean",
+            "向量空间模型": "vector"
+        }
+        algorithm = algorithm_map.get(algo_combo.currentText(), "keyword")
+        threshold = threshold_spin.value()
+
+        # 准备UI
+        search_btn.setEnabled(False)
+        search_btn.setText("搜索中...")
+        table_view.setRowCount(0)
+        progress_bar.setValue(0)
+        result_count_label.setText("共找到 0 条结果")
+
+        # 创建并启动搜索线程
+        search_worker = SearchWorker(file_list_path, keyword, algorithm, threshold)
+        search_worker.search_progress.connect(update_search_progress)
+        search_worker.search_finished.connect(show_search_results)
+        search_worker.error_occurred.connect(show_search_error)
+        search_worker.start()
+
+    def update_search_progress(progress, message):
+        progress_bar.setValue(progress)
+        search_btn.setText(f"搜索中...{progress}%")
+
+    def show_search_results(results):
+        # 显示搜索结果
+        table_view.setRowCount(len(results))
+
+        for row, result in enumerate(results):
+            table_view.setItem(row, 0, QTableWidgetItem(result['file']))
+            table_view.setItem(row, 1, QTableWidgetItem(result['path']))
+            table_view.setItem(row, 2, QTableWidgetItem(result['keyword']))
+            table_view.setItem(row, 3, QTableWidgetItem(result['context']))
+            table_view.setItem(row, 4, QTableWidgetItem(str(result['confidence'])))
+
+        # 更新状态
+        result_count_label.setText(f"共找到 {len(results)} 条结果")
+        search_btn.setEnabled(True)
+        search_btn.setText("开始检索")
+        progress_bar.setValue(100)
+
+    def show_search_error(message):
+        QMessageBox.critical(page, "错误", message)
+        search_btn.setEnabled(True)
+        search_btn.setText("开始检索")
+        progress_bar.setValue(0)
+
+    def export_results():
+        if not search_worker or not search_worker.results:
+            QMessageBox.warning(page, "警告", "没有可导出的结果")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            page, "导出结果", "", "CSV文件 (*.csv)")
+
+        if output_path:
+            try:
+                SearchWorker.export_to_csv(search_worker.results, output_path)
+                QMessageBox.information(page, "成功", f"结果已导出到 {output_path}")
+            except Exception as e:
+                QMessageBox.critical(page, "错误", str(e))
+
+    # 连接信号
+    search_btn.clicked.connect(start_search)
+    export_btn.clicked.connect(export_results)
+
+    return page
 
 def create_rule_page():
     page = QWidget()
