@@ -123,7 +123,7 @@ class RegisterPage(QWidget):
     def add_developer_info(self, layout):
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
-        developer_label = QLabel('开发者：刘俊豪')
+        developer_label = QLabel('制作者：刘俊豪')
         developer_label.setStyleSheet('font-size: 10px; color: #666; margin-right: 5px;')
         bottom_layout.addWidget(developer_label)
         layout.addLayout(bottom_layout)
@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet('''
             QWidget {
                 background-color: #f0f2f5;
+                font-family: 'SimHei';
             }
             QLabel {
                 font-size: 24px;

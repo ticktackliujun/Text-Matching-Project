@@ -34,12 +34,15 @@ class MainAppWindow(QMainWindow):
         # Navigation buttons
         self.nav_buttons = []
         nav_items = [
-            {"text": "数据源模块", "icon": "首页.png"},
+            {"text": "数据源模块", "icon": "resource.png"},
             {"text": "检索模块", "icon": "检索.png"},
-            {"text": "规则模块", "icon": "规则.png"},
-            {"text": "可视化模块", "icon": "可视化.png"},
+
+            {"text": "动态观察", "icon": "可视化.png"},
             {"text": "用户管理", "icon": "用户管理.png"},
+
+            {"text": "性能评估", "icon": "语料管理.png"},
             {"text": "帮助中心", "icon": "帮助中心.png"}
+
         ]
 
         for i, item in enumerate(nav_items):
